@@ -31,7 +31,7 @@ class GridStrategy(bt.Strategy):
     def next(self):
         # 记录当前价格和相对于grid_start_price的涨跌幅
         current_price = self.data.close[0]
-        print(f'当前价格：{current_price}')
+        print(f'当前时间：{self.data.datetime.datetime()}，当前价格：{current_price}')
         if self.grid_start_price is not None:
             percent = (current_price - self.grid_start_price) / self.grid_start_price
             print(f'grid_start_price: {self.grid_start_price}, 相对于grid_start_price的涨跌幅：{percent:.2%}')
@@ -131,7 +131,8 @@ if __name__ == '__main__':
         api_secret=api_secret,
         coin_refer='BTC',
         coin_target='USDT',
-        testnet=True)
+        testnet=True,
+        type='future')
     broker = store.getbroker()
     cerebro.setbroker(broker)
     print('set broker')

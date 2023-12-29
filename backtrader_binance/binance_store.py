@@ -32,7 +32,7 @@ class BinanceStore(object):
         (TimeFrame.Months, 1): KLINE_INTERVAL_1MONTH,
     }
 
-    def __init__(self, api_key, api_secret, coin_refer, coin_target, testnet=False, retries=5):
+    def __init__(self, api_key, api_secret, coin_refer, coin_target, testnet=False, retries=5, type='future'):
         self.binance = Client(api_key, api_secret, testnet=testnet)
         self.binance_socket = ThreadedWebsocketManager(api_key, api_secret, testnet=testnet)
         self.binance_socket.daemon = True
@@ -41,6 +41,14 @@ class BinanceStore(object):
         self.coin_target = coin_target
         self.symbol = coin_refer + coin_target
         self.retries = retries
+        self.type = type
+        if self.type == 'spot':
+            self.exchange_info = self.binance.get_exchange_info()
+        elif self.type == 'future':
+            self.exchange_info = self.binance.futures_exchange_info()
+        else:
+            print('trading type error, must be spot of future, not support type: ', self.type)
+        print('exchange_info[symbols][0]:', self.exchange_info['symbols'][0])
 
         self._cash = 0
         self._value = 0
@@ -52,7 +60,9 @@ class BinanceStore(object):
 
         self._broker = BinanceBroker(store=self)
         self._data = None
+
         
+
     def _format_value(self, value, step):
         precision = step.find('1') - 1
         if precision > 0:
@@ -84,15 +94,36 @@ class BinanceStore(object):
 
     @retry
     def cancel_order(self, order_id):
-        try:
-            self.binance.cancel_order(symbol=self.symbol, orderId=order_id)
-        except BinanceAPIException as api_err:
-            if api_err.code == -2011:  # Order filled
-                return
-            else:
-                raise api_err
-        except Exception as err:
-            raise err
+        if self.type == 'spot':
+            try:
+                self.binance.cancel_order(symbol=self.symbol, orderId=order_id)
+            except BinanceAPIException as api_err:
+                if api_err.code == -2011:  # Order filled
+                    return
+                else:
+                    raise api_err
+            except Exception as err:
+                raise err
+        if self.type == 'future':
+            try:
+                self.binance.futures_cancel_order(symbol=self.symbol, orderId=order_id)
+            except BinanceAPIException as api_err:
+                if api_err.code == -2011:  # Order filled
+                    return
+                else:
+                    raise api_err
+            except Exception as err:
+                raise err
+        if self.type == 'spot':
+            try:
+                self.binance.cancel_margin_order(symbol=self.symbol, orderId=order_id)
+            except BinanceAPIException as api_err:
+                if api_err.code == -2011:  # Order filled
+                    return
+                else:
+                    raise api_err
+            except Exception as err:
+                raise err
     
     @retry
     def create_order(self, side, type, size, price):
@@ -106,12 +137,31 @@ class BinanceStore(object):
                 'price': self.format_price(price)
             })
 
-        return self.binance.create_order(
-            symbol=self.symbol,
-            side=side,
-            type=type,
-            quantity=self.format_quantity(size),
-            **params)
+        if self.type == 'spot':
+            return self.binance.create_order(
+                symbol=self.symbol,
+                side=side,
+                type=type,
+                quantity=self.format_quantity(size),
+                **params)
+        if self.type == 'future':
+            # if side == 'BUY':
+                # params.update({'positionSide':'LONG'})
+            # if side == 'SELL':
+                # params.update({'positionSide':'SHORT'})
+            return self.binance.futures_create_order(
+                symbol=self.symbol,
+                side=side,
+                type=type,
+                quantity=self.format_quantity(size),
+                **params)
+        if self.type == 'margin':
+            return self.binance.create_margin_order(
+                symbol=self.symbol,
+                side=side,
+                type=type,
+                quantity=self.format_quantity(size),
+                **params)
 
     def format_price(self, price):
         return self._format_value(price, self._tick_size)
@@ -121,8 +171,17 @@ class BinanceStore(object):
 
     @retry
     def get_asset_balance(self, asset):
-        balance = self.binance.get_asset_balance(asset)
-        return float(balance['free']), float(balance['locked'])
+        if self.type == 'spot':
+            balance = self.binance.get_asset_balance(asset)
+            return float(balance['free']), float(balance['locked'])
+        if self.type == 'future':
+            balances = self.binance.futures_account_balance()
+            for balance in balances:
+                if balance['asset'] == asset:
+                    return float(balance['withdrawAvailable']), float(balance['balance'])-float(balance['withdrawAvailable'])
+        if self.type == 'margin':
+            balance = self.binance.get_margin_balance(asset)
+            return float(balance['free']), float(balance['locked'])
 
     def get_balance(self):
         free, locked = self.get_asset_balance(self.coin_target)
@@ -150,7 +209,9 @@ class BinanceStore(object):
 
     @retry
     def get_symbol_info(self, symbol):
-        return self.binance.get_symbol_info(symbol)
+        for item in self.exchange_info['symbols']:
+            if item['symbol'] == symbol.upper():
+                return item
 
     def stop_socket(self):
         self.binance_socket.stop()

@@ -1,10 +1,12 @@
 from collections import deque
+import time
 
 import pandas as pd
 
 from backtrader.dataseries import TimeFrame
 from backtrader.feed import DataBase
 from backtrader.utils import date2num
+from binance.enums import HistoricalKlinesType
 
 
 class BinanceData(DataBase):
@@ -26,7 +28,13 @@ class BinanceData(DataBase):
         """https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-streams"""
         if msg['e'] == 'kline':
             if msg['k']['x']:  # Is closed
+                print(msg)
+                f = open("kline_history.txt", "a")
+                f.write(str(msg)+'\n')
+                f.close()
+                print(self.symbol_info['symbol'], time.time())
                 kline = self._parser_to_kline(msg['k']['t'], msg['k'])
+                print('kline:', kline.values.tolist())
                 self._data.extend(kline.values.tolist())
         elif msg['e'] == 'error':
             raise msg
@@ -49,6 +57,7 @@ class BinanceData(DataBase):
             return None
 
         timestamp, open_, high, low, close, volume = kline
+        print('load kline:', timestamp, open_, high, low, close, volume)
 
         self.lines.datetime[0] = date2num(timestamp)
         self.lines.open[0] = open_
@@ -78,11 +87,19 @@ class BinanceData(DataBase):
     def _start_live(self):
         self._state = self._ST_LIVE
         self.put_notification(self.LIVE)
-            
-        self._store.binance_socket.start_kline_socket(
-            self._handle_kline_socket_message,
-            self.symbol_info['symbol'],
-            self.interval)
+        if self._store.type == 'spot':
+            self._store.binance_socket.start_kline_socket(
+                self._handle_kline_socket_message,
+                self.symbol_info['symbol'],
+                self.interval)
+        elif self._store.type == 'future':
+            # default to USDT-M futures, can be changed to COIN-M futures
+            self._store.binance_socket.start_kline_futures_socket(
+                self._handle_kline_socket_message,
+                self.symbol_info['symbol'],
+                self.interval
+            )
+
         
     def haslivedata(self):
         return self._state == self._ST_LIVE and self._data
@@ -109,10 +126,17 @@ class BinanceData(DataBase):
             self._state = self._ST_HISTORBACK
             self.put_notification(self.DELAYED)
 
-            klines = self._store.binance.get_historical_klines(
-                self.symbol_info['symbol'],
-                self.interval,
-                self.start_date.strftime('%d %b %Y %H:%M:%S'))
+            if self._store.type == 'spot':
+                klines = self._store.binance.get_historical_klines(
+                    self.symbol_info['symbol'],
+                    self.interval,
+                    self.start_date.strftime('%d %b %Y %H:%M:%S'))
+            elif self._store.type == 'future':
+                klines = self._store.binance.get_historical_klines(
+                    self.symbol_info['symbol'],
+                    self.interval,
+                    self.start_date.strftime('%d %b %Y %H:%M:%S'),
+                    klines_type=HistoricalKlinesType.FUTURES)
 
             if self.p.drop_newest:
                 klines.pop()
