@@ -176,4 +176,4 @@ class BinanceBroker(BrokerBase):
         return self._submit(owner, data, SIDE_SELL, exectype, size, price)
 
     def get_orders_open(self):
-        return self.open_orders
+        return self.open_orders.copy()
