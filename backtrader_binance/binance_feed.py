@@ -26,15 +26,15 @@ class BinanceData(DataBase):
 
     def _handle_kline_socket_message(self, msg):
         """https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-streams"""
-        if msg['e'] == 'kline':
+        if msg['e'] == 'continuous_kline':
+            # print('msg last price:', msg['k']['c'])
             if msg['k']['x']:  # Is closed
-                print(msg)
                 f = open("kline_history.txt", "a")
                 f.write(str(msg)+'\n')
                 f.close()
                 print(self.symbol_info['symbol'], time.time())
                 kline = self._parser_to_kline(msg['k']['t'], msg['k'])
-                print('kline:', kline.values.tolist())
+                print('kline close:', kline.values.tolist())
                 self._data.extend(kline.values.tolist())
         elif msg['e'] == 'error':
             raise msg
@@ -144,6 +144,8 @@ class BinanceData(DataBase):
             df = pd.DataFrame(klines)
             df.drop(df.columns[[6, 7, 8, 9, 10, 11]], axis=1, inplace=True)  # Remove unnecessary columns
             df = self._parser_dataframe(df)
-            self._data.extend(df.values.tolist())            
+            self._data.extend(df.values.tolist())   
+            print('start live data')
+            self._start_live()         
         else:
             self._start_live()

@@ -50,6 +50,7 @@ class BinanceStore(object):
             print('trading type error, must be spot of future, not support type: ', self.type)
         print('exchange_info[symbols][0]:', self.exchange_info['symbols'][0])
 
+        self.binance.futures_change_leverage(symbol=self.symbol, leverage=12)
         self._cash = 0
         self._value = 0
         self.get_balance()
@@ -176,9 +177,11 @@ class BinanceStore(object):
             return float(balance['free']), float(balance['locked'])
         if self.type == 'future':
             balances = self.binance.futures_account_balance()
+            print('account balance:', balances)
             for balance in balances:
                 if balance['asset'] == asset:
-                    return float(balance['withdrawAvailable']), float(balance['balance'])-float(balance['withdrawAvailable'])
+                    print('asset detail:', balance)
+                    return float(balance['availableBalance']), float(balance['balance'])-float(balance['availableBalance'])
         if self.type == 'margin':
             balance = self.binance.get_margin_balance(asset)
             return float(balance['free']), float(balance['locked'])

@@ -46,7 +46,7 @@ class BinanceBroker(BrokerBase):
         self.open_orders = list()
     
         self._store = store
-        self._store.binance_socket.start_user_socket(self._handle_user_socket_message)
+        self._store.binance_socket.start_futures_user_socket(self._handle_user_socket_message)
 
     def _execute_order(self, order, date, executed_size, executed_price):
         order.execute(
@@ -62,22 +62,44 @@ class BinanceBroker(BrokerBase):
 
     def _handle_user_socket_message(self, msg):
         """https://binance-docs.github.io/apidocs/spot/en/#payload-order-update"""
-        if msg['e'] == 'executionReport':
-            if msg['s'] == self._store.symbol:
-                for o in self.open_orders:
-                    if o.binance_order['orderId'] == msg['i']:
-                        if msg['X'] in [ORDER_STATUS_FILLED, ORDER_STATUS_PARTIALLY_FILLED]:
-                            date = dt.datetime.fromtimestamp(msg['T'] / 1000)
-                            executed_size = float(msg['l'])
-                            executed_price = float(msg['L'])
-                            self._execute_order(o, dt, executed_size, executed_price)
-                        self._set_order_status(o, msg['X'])
+        print('handle msg',msg)
+        if self._store.type == 'spot':
+            if msg['e'] == 'executionReport':
+                if msg['s'] == self._store.symbol:
+                    for o in self.open_orders:
+                        if o.binance_order['orderId'] == msg['i']:
+                            if msg['X'] in [ORDER_STATUS_FILLED, ORDER_STATUS_PARTIALLY_FILLED]:
+                                date = dt.datetime.fromtimestamp(msg['T'] / 1000)
+                                executed_size = float(msg['l'])
+                                executed_price = float(msg['L'])
+                                self._execute_order(o, dt, executed_size, executed_price)
+                            self._set_order_status(o, msg['X'])
 
-                        if o.status not in [Order.Accepted, Order.Partial]:
-                            self.open_orders.remove(o)
-                        self.notify(o)
-        elif msg['e'] == 'error':
-            raise msg
+                            if o.status not in [Order.Accepted, Order.Partial]:
+                                self.open_orders.remove(o)
+                            self.notify(o)
+            elif msg['e'] == 'error':
+                raise msg
+        elif self._store.type == 'future':
+            if msg['e'] == 'ORDER_TRADE_UPDATE':
+                if msg['o']['s'] == self._store.symbol:
+                    print('new order update of symbol',self._store.symbol)
+                    for o in self.open_orders:
+                        if o.binance_order['orderId'] == msg['o']['i']:
+                            print('find order in open_orders')
+                            if msg['o']['X'] in [ORDER_STATUS_FILLED, ORDER_STATUS_PARTIALLY_FILLED]:
+                                print('order filled or partially filled')
+                                date = dt.datetime.fromtimestamp(msg['o']['T'] / 1000)
+                                executed_size = float(msg['o']['l'])
+                                executed_price = float(msg['o']['L'])
+                                self._execute_order(o, dt, executed_size, executed_price)
+                            self._set_order_status(o, msg['o']['X'])
+
+                            if o.status not in [Order.Accepted, Order.Partial]:
+                                self.open_orders.remove(o)
+                            self.notify(o)
+            elif msg['e'] == 'error':
+                raise msg
     
     def _set_order_status(self, order, binance_order_status):
         if binance_order_status == ORDER_STATUS_CANCELED:
@@ -152,3 +174,6 @@ class BinanceBroker(BrokerBase):
              trailamount=None, trailpercent=None,
              **kwargs):
         return self._submit(owner, data, SIDE_SELL, exectype, size, price)
+
+    def get_orders_open(self):
+        return self.open_orders
